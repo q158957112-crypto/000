@@ -1,0 +1,27 @@
+name: Stock Alert Bot
+
+on:
+  schedule:
+    # 設定時間：台股週一到週五，下午 1:35 (UTC時間 05:35) 自動執行
+    - cron: '35 5 * * 1-5'
+  workflow_dispatch: # 讓你隨時能在網頁上按手動測試按鈕
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Run script
+        run: |
+          python stock.py
