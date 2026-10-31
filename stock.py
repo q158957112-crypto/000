@@ -6,31 +6,40 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 def check_and_send_alert():
     # ==========================================
-    # 1. 在這裡計算你的資產、損益與各持股比例
+    # 1. 數據與資產配置設定 (目標 7 : 3)
     # ==========================================
     total_assets = 2175756      # 總資產市值 (TWD)
     today_pnl = -29376          # 今日損益 (TWD)
     drop_percentage = 3.5       # 今日跌幅百分比（正數代表下跌幅度）
 
-    # 範例：各持股/資產的佔比數據（請對應你原本的計算結果）
-    asset_ratios = {
-        "00631L": 45.2,
-        "00685L": 35.1,
-        "現金/其他": 19.7
-    }
+    # 現狀比例數據
+    leverage_2x_ratio = 70.0    # 正二 (00631L) 佔比 %
+    bond_cash_ratio = 30.0      # 債券 (00685L) + 現金 佔比 %
+
+    # 目標比例
+    target_leverage = 70.0
+    target_bond_cash = 30.0
+
+    # 計算偏離幅度
+    diff_leverage = round(leverage_2x_ratio - target_leverage, 1)
+
+    # 偏離提示訊息
+    if abs(diff_leverage) >= 5.0:
+        rebalance_advice = f"⚠️ **注意**：正二比例已偏離目標 ({diff_leverage:+}%)，建議進行再平衡！"
+    else:
+        rebalance_advice = "✅ **資產比例正常**：維持在目標 7:3 附近。"
 
     # ==========================================
-    # 2. 組合要發送的 Discord 訊息內容
+    # 2. 組合 Discord 推播內容
     # ==========================================
-    ratio_text = "\n".join([f"• **{name}**：{ratio}%" for name, ratio in asset_ratios.items()])
-
-    # 基本日報/警報內容
     message = (
         f"🚨 **[盤中警報] 發現資產跌幅達 {drop_percentage}%！**\n"
         f"• **總資產市值**：${total_assets:,} TWD\n"
         f"• **今日資產損益**：${today_pnl:,} TWD (**-{drop_percentage}%**)\n\n"
-        f"📊 **目前資產配置比例**：\n{ratio_text}\n"
-        "• **建議**：跌幅已達 2% 警戒線，請密切關注市場波動！"
+        f"📊 **目前資產配置 (目標 7:3)**：\n"
+        f"• **正二 (00631L)**：{leverage_2x_ratio}% (目標 {target_leverage}%)\n"
+        f"• **債券 (00685L) + 現金**：{bond_cash_ratio}% (目標 {target_bond_cash}%)\n"
+        f"• **狀態**：{rebalance_advice}"
     )
 
     if not WEBHOOK_URL:
@@ -39,13 +48,13 @@ def check_and_send_alert():
         return
 
     # ==========================================
-    # 3. 判斷是否達到 2% 的跌幅門檻
+    # 3. 觸發條件判斷（跌幅 >= 2% 才發送）
     # ==========================================
     if drop_percentage >= 2.0:
         payload = {"content": message}
         response = requests.post(WEBHOOK_URL, json=payload)
         if response.status_code == 204:
-            print("跌幅已達 2% 以上，包含比例的警報已成功發送至 Discord！")
+            print("跌幅已達 2% 以上，7:3 比例警報已成功發送至 Discord！")
         else:
             print(f"發送失敗，HTTP 狀態碼: {response.status_code}")
     else:
