@@ -1,69 +1,75 @@
+import os
 import requests
-import json
 
-# 1. 設定你關注的槓桿 ETF 清單
-my_stocks = ["00631L.TW", "00685L.TW"]
+# 1. 填入你目前的持有股數與短債買入張數
+# 00631L: 44,150 股, 00685L: 視截圖約 5,800 股 (請依實際調整)
+HOLDINGS = {
+    "00631L.TW": 44150,
+    "00685L.TW": 5800,
+    "00865B.TW": 12000,  # 預計買入 12 張 (12,000 股)
+}
 
-# 2. 設定警示門檻（可以分別控制漲跌）
-drop_threshold = -2.0   # 跌幅達到 -2.0%（含）以上時發送警報
-rise_threshold = 2.0    # 漲幅達到 +2.0%（含）以上時發送警報
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-# 3. 填入你的 Discord Webhook 網址（保留雙引號）
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1566002402669240434/O35y8OBwaZ2ZdGgJjx0r-h_4Vxx3639z6mWxlUZU_KmeS5977j6vkJOHwRk6J_-c1Elr"
-
-def send_discord_webhook(message):
-    data = {"content": message}
-    response = requests.post(DISCORD_WEBHOOK_URL, json=data)
-    return response.status_code
-
-print("正在檢查 00631L 與 00685L 的市場表現...\n")
-
-alert_messages = []
-
-for code in my_stocks:
+def get_stock_price(ticker):
+    """取得股票/ETF 最新價格"""
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{code}?range=1mo&interval=1d"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        
-        result = data['chart']['result'][0]
-        closes = result['indicators']['quote'][0]['close']
-        
-        valid_closes = [c for c in closes if c is not None]
-        
-        if len(valid_closes) < 2:
-            print(f"⚠️ 代號 {code} 的有效價格資料不足。\n")
-            continue
-            
-        latest_close = float(valid_closes[-1])
-        prev_close = float(valid_closes[-2])
-        
-        daily_return = ((latest_close - prev_close) / prev_close) * 100
-        
-        print(f"📌 股票代號：{code}")
-        print(f"   - 最新收盤價：{latest_close:.2f}")
-        print(f"   - 今日漲跌幅：{daily_return:.2f}%")
-        
-        # 檢查是否觸發跌幅警報
-        if daily_return <= drop_threshold:
-            msg = f"🚨 **【槓桿 ETF 跌幅警示】**\n代號：`{code}`\n今日跌幅：**{daily_return:.2f}%**\n最新收盤價：`{latest_close:.2f}`"
-            alert_messages.append(msg)
-            
-        # 檢查是否觸發漲幅警報
-        elif daily_return >= rise_threshold:
-            msg = f"🚀 **【槓桿 ETF 漲幅警示】**\n代號：`{code}`\n今日漲幅：**+{daily_return:.2f}%**\n最新收盤價：`{latest_close:.2f}`"
-            alert_messages.append(msg)
-            
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=10)
+        data = res.json()
+        price = data["chart"]["result"][0]["meta"]["regularMarketPrice"]
+        return price
     except Exception as e:
-        print(f"處理 {code} 時發生錯誤：{e}\n")
+        print(f"抓取 {ticker} 價格失敗: {e}")
+        return None
 
-if len(alert_messages) > 0:
-    full_message = "\n\n".join(alert_messages)
-    send_discord_webhook(full_message)
-    print("\n📲 成功透過 Discord 發送行情警示通知！")
-else:
-    print("\n✅ 今日所有追蹤標的皆未達到漲跌幅門檻。")
+def main():
+    p_631 = get_stock_price("00631L.TW")
+    p_685 = get_stock_price("00685L.TW")
+    p_865 = get_stock_price("00865B.TW")
+    
+    if not (p_631 and p_685 and p_865):
+        print("無法取得部分資產價格，跳過今日檢查")
+        return
 
-# 防止畫面閃退的暫停指令
-input("\n測試結束！請按下 Enter 鍵關閉視窗...")
+    # 計算各項資產總市值
+    val_leveraged = (HOLDINGS["00631L.TW"] * p_631) + (HOLDINGS["00685L.TW"] * p_685)
+    val_bond = HOLDINGS["00865B.TW"] * p_865
+    total_val = val_leveraged + val_bond
+
+    # 計算實際比例
+    ratio_leveraged = (val_leveraged / total_val) * 100
+    ratio_bond = (val_bond / total_val) * 100
+
+    # 檢測是否有顯著偏離（目標 80% 正二 / 20% 短債，觸發門檻：偏離超過 ±5%）
+    is_overloaded = ratio_leveraged > 85.0  # 股市大漲，正二佔比 > 85%
+    is_underloaded = ratio_leveraged < 75.0 # 股市大跌，正二佔比 < 75%
+
+    if is_overloaded or is_underloaded:
+        status_title = "🚨 【再平衡提醒】資產比例已偏離預定目標！"
+        if is_overloaded:
+            suggestion = f"📈 **正二比重過高 ({ratio_leveraged:.1f}%)**：建議賣出部分正二，轉入 00865B 鎖定獲利。"
+        else:
+            suggestion = f"📉 **正二比重過低 ({ratio_leveraged:.1f}%)**：建議賣出部分 00865B，加碼低點正二抄底！"
+        
+        message = (
+            f"### {status_title}\n"
+            f"- **總資產估值**：${total_val:,.0f} TWD\n"
+            f"- **正二總市值**：${val_leveraged:,.0f} ({ratio_leveraged:.1f}%)\n"
+            f"- **00865B 市值**：${val_bond:,.0f} ({ratio_bond:.1f}%)\n\n"
+            f"{suggestion}"
+        )
+        
+        # 推播至 Discord
+        if DISCORD_WEBHOOK_URL:
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
+            print("通知已發送至 Discord")
+        else:
+            print("未設定 Webhook，訊息內容如下：")
+            print(message)
+    else:
+        print(f"目前資產比例正常（正二: {ratio_leveraged:.1f}% / 短債: {ratio_bond:.1f}%），無需再平衡。")
+
+if __name__ == "__main__":
+    main()
