@@ -1,7 +1,7 @@
 import os
 import requests
 
-# 1. 持有股數設定 (未來買賣時請更新這裡的數字)
+# 1. 填入你目前的持有股數 (未來買賣時請更新這裡的數字)
 HOLDINGS = {
     "00631L.TW": 44150,  # 元大台灣50正2
     "00685L.TW": 5800,   # 富邦台灣加權正2
@@ -43,7 +43,7 @@ def main():
     p_685, prev_685 = get_stock_data("00685L.TW")
     p_865, prev_865 = get_stock_data("00865B.TW")
     
-    # 功能三：API 抓取失敗警報
+    # API 抓取失敗警報
     if not (p_631 and p_685 and p_865 and prev_631 and prev_685 and prev_865):
         error_msg = "⚠️ **【系統警告】無法成功取得最新股價數據！**\n請檢查 Yahoo Finance API 或連線狀態。"
         print(error_msg)
@@ -64,7 +64,7 @@ def main():
     total_val = val_leveraged + val_bond
     prev_total_val = prev_val_631 + prev_val_685 + prev_val_865
 
-    # 功能一：計算今日損益金額與百分比 (Daily P&L)
+    # 計算今日損益金額與百分比 (Daily P&L)
     daily_change = total_val - prev_total_val
     daily_change_pct = (daily_change / prev_total_val) * 100
     
@@ -100,7 +100,7 @@ def main():
         f"{suggestion}"
     )
 
-    # 功能二：每日發送簡報訊息
+    # 發送簡報訊息到 Discord
     send_discord_message(message)
     print("訊息處理完成並已發送")
 
